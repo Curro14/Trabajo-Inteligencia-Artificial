@@ -1,0 +1,8 @@
+pandas
+geopandas
+scikit-learn
+streamlit
+matplotlib
+seaborn
+folium
+dagster
