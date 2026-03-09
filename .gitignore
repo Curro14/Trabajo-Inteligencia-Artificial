@@ -205,3 +205,20 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# =========================================
+# REGLAS PERSONALIZADAS (DATOS PESADOS)
+# =========================================
+
+# Ignorar archivos CSV gigantes crudos
+data/calendar.csv
+
+# Ignorar cartografía pesada del INE de toda España
+data/*.shp
+data/*.dbf
+data/*.shx
+data/*.prj
+data/*.cpg
+data/*.sbn
+data/*.sbx
