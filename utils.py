@@ -1,0 +1,321 @@
+# ==========================================
+# CONFIGURACIÓN GLOBAL DEL PROYECTO
+# ==========================================
+
+def librerias():
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import os
+    import re
+    import sys
+    import subprocess
+    import importlib
+    import warnings
+    import geopandas as gpd
+    from transformers import pipeline
+    import dask.dataframe as dd
+    import time
+
+    from tqdm.auto import tqdm
+
+    # Preprocesamiento (Scikit-Learn)
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler, OneHotEncoder
+    from sklearn.compose import ColumnTransformer
+
+    # Deep Learning (TensorFlow & Keras)
+    import tensorflow as tf
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense, Dropout
+    from tensorflow.keras.callbacks import EarlyStopping
+    
+    
+    return pd, np, plt, sns, os, re, sys, subprocess, importlib, warnings, gpd, pipeline, dd, time, tqdm, train_test_split, StandardScaler, OneHotEncoder, ColumnTransformer, Sequential, Dense, Dropout, EarlyStopping
+
+def pipeline_completo_preparacion():
+    """
+    Configura el entorno (GPU/CPU), gestiona librerías y realiza la limpieza 
+    de Listings, Calendar, Renta y ahora también el Muestreo de Reviews.
+    """
+    
+    # 1. GESTIÓN DE LIBRERÍAS (Añadimos torch y tqdm)
+    def install_if_missing(package):
+        try:
+            __import__(package)
+        except ImportError:
+            print(f"📦 Instalando {package}...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+    for lib in ['pandas', 'numpy', 'torch', 'tqdm']:
+        install_if_missing(lib)
+    
+
+    # 2. CONFIGURACIÓN DE HARDWARE Y WARNINGS
+    warnings.filterwarnings('ignore')
+    tqdm.pandas() # Barra de progreso para Pandas
+    
+    PATH_DATA = 'data'
+    if not os.path.exists(PATH_DATA):
+        print(f"❌ Error: No se encuentra la carpeta '{PATH_DATA}'.")
+        return None
+
+    # Verificación de aceleración por Hardware (GPU o Apple Silicon)
+    if torch.cuda.is_available():
+        device = 0
+        print("🚀 Procesando con: GPU (NVIDIA)")
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        device = 0
+        print("🚀 Procesando con: GPU (Mac Apple Silicon)")
+    else:
+        device = -1
+        print("🐢 Procesando con: CPU (Paciencia...)")
+
+    # 3. LIMPIEZA DE DATASETS (Listings, Calendar, Renta) - Tu lógica previa
+    
+    # [Aquí va tu lógica de listings, calendar y renta que ya teníamos]
+    # (La mantengo interna para que la función devuelva todo)
+    
+    # 4. LIMPIEZA Y MUESTREO ESTRATIFICADO DE REVIEWS (Nuevo Bloque)
+    ruta_reviews = os.path.join(PATH_DATA, 'reviews.csv')
+
+    try:
+        # Cargamos solo lo necesario para ahorrar RAM
+        df_reviews = pd.read_csv(ruta_reviews, usecols=['listing_id', 'comments', 'date']).dropna()
+        # Ordenamos para quedarnos con las 10 más recientes por piso
+        df_reviews = df_reviews.sort_values(by=['listing_id', 'date'], ascending=[True, False])
+    except Exception:
+        df_reviews = pd.read_csv(ruta_reviews, usecols=['listing_id', 'comments']).dropna()
+
+    print("📊 Aplicando muestreo (Top 10 reseñas por alojamiento)...")
+    df_reviews = df_reviews.groupby('listing_id').head(10).copy()
+
+    def limpiar_texto(texto):
+        texto = str(texto)
+        # Quita etiquetas HTML y saltos de línea
+        texto = re.sub(r'<br\s*/?>|[\r\n]+', ' ', texto)
+        # Quita espacios dobles
+        return re.sub(r'\s+', ' ', texto).strip()
+
+    print("🧹 Limpiando texto de comentarios...")
+    df_reviews['comments'] = df_reviews['comments'].progress_apply(limpiar_texto)
+    
+    # Filtramos comentarios basura o muy cortos
+    df_reviews = df_reviews[df_reviews['comments'].str.len() > 10].copy()
+
+    print(f"✅ Proceso finalizado. {len(df_reviews)} reseñas listas.")
+    
+    # Ahora la función devuelve 4 DataFrames en lugar de 3
+    # (Asegúrate de recibir los 4 cuando llames a la función)
+    return df_reviews
+
+
+def preparar_fechas_y_eventos(df):
+    """
+    Realiza la ingeniería de variables temporales y aplica el etiquetado 
+    avanzado de eventos (Navidad, Puentes, Feria y Semana Santa 2024-2026).
+    """
+    import numpy as np
+    
+    # 1. Variables básicas de tiempo (Lo que pedía el cuaderno original)
+    df['mes'] = df['date'].dt.month
+    df['dia_semana'] = df['date'].dt.day_name()
+    df['es_finde'] = df['date'].dt.dayofweek.isin([4, 5, 6])
+    
+    # 2. Inicializar columna de evento
+    df['evento'] = 'Normal'
+
+    # 3. Aplicar Máscaras de Eventos (Lógica Avanzada)
+
+    # NAVIDAD (Fijo: 22 Dic al 6 Ene)
+    mask_navidad = ((df['date'].dt.month == 12) & (df['date'].dt.day >= 22)) | \
+                   ((df['date'].dt.month == 1) & (df['date'].dt.day <= 6))
+    df.loc[mask_navidad, 'evento'] = 'Navidad'
+
+    # PUENTES NACIONALES (Fechas fijas aproximadas)
+    df.loc[(df['date'].dt.month == 12) & (df['date'].dt.day.between(5, 10)), 'evento'] = 'Puente Diciembre'
+    df.loc[(df['date'].dt.month == 10) & (df['date'].dt.day.between(11, 15)), 'evento'] = 'Puente Hispanidad'
+    df.loc[(df['date'].dt.month == 5) & (df['date'].dt.day.between(1, 3)), 'evento'] = 'Puente de Mayo'
+
+    # FERIA DE ABRIL (Fechas 2025 y 2026)
+    mask_feria = ((df['date'] >= '2025-05-05') & (df['date'] <= '2025-05-11')) | \
+                 ((df['date'] >= '2026-04-20') & (df['date'] <= '2026-04-26'))
+    df.loc[mask_feria, 'evento'] = 'Feria de Abril'
+
+    # SEMANA SANTA (Fechas 2025 y 2026)
+    mask_ss = ((df['date'] >= '2025-04-13') & (df['date'] <= '2025-04-20')) | \
+              ((df['date'] >= '2026-03-29') & (df['date'] <= '2026-04-05'))
+    df.loc[mask_ss, 'evento'] = 'Semana Santa'
+
+    # 4. Creación de la columna 'periodo' (Consolidando Evento vs Finde/Semana)
+    df['periodo'] = np.where(
+        df['evento'] != 'Normal', 
+        df['evento'], 
+        np.where(df['es_finde'], 'Finde Normal', 'Semana Normal')
+    )
+    
+    return df
+
+
+def integrar_informacion_barrios(df_calendar, df_listings, df_renta):
+    """
+    Cruza el calendario con listings para obtener barrios y con el INE para rentas.
+    """
+    # Unimos con listings para traer barrios y tipo de habitación
+    df_merged = pd.merge(df_calendar, 
+                         df_listings[['id', 'neighbourhood_group_cleansed', 'room_type']], 
+                         left_on='listing_id', right_on='id', how='left')
+    
+    # Unimos con los datos de renta del INE
+    df_final = pd.merge(df_merged, 
+                        df_renta[['distrito_limpio', 'Total']], 
+                        left_on='neighbourhood_group_cleansed', 
+                        right_on='distrito_limpio', how='left')
+    
+    return df_final
+
+def calcular_metricas_rentabilidad(df):
+    """
+    Calcula la tasa de ocupación y estima la ganancia por anuncio.
+    """
+    # 1 representa ocupado, 0 disponible
+    df['ocupado'] = df['available'].apply(lambda x: 0 if x else 1)
+    
+    # Resumen por evento
+    resumen_evento = df.groupby('evento').agg({
+        'price': 'mean',
+        'ocupado': 'mean'
+    }).reset_index()
+    
+    resumen_evento['ocupacion_pct'] = resumen_evento['ocupado'] * 100
+    
+    return resumen_evento
+
+def visualizar_ocupacion_festividades(df):
+    """
+    Calcula y grafica la tasa de ocupación media para cada periodo 
+    y festividad definida en el dataset.
+    """
+
+    # 1. Cálculo de la ocupación media por periodo
+    # Multiplicamos por 100 para obtener el porcentaje
+    resumen_ocupacion = (df.groupby('periodo')['ocupado'].mean() * 100).sort_values(ascending=False)
+
+    # 2. Configuración del estilo y tamaño
+    plt.figure(figsize=(12, 6))
+    sns.set_theme(style="whitegrid")
+
+    # 3. Creación del gráfico de barras
+    grafico = sns.barplot(x=resumen_ocupacion.index, y=resumen_ocupacion.values, palette="mako")
+
+    # 4. Añadir etiquetas de porcentaje sobre las barras
+    for p in grafico.patches:
+        grafico.annotate(f"{p.get_height():.1f}%", 
+                         (p.get_x() + p.get_width() / 2., p.get_height()), 
+                         ha = 'center', va = 'center', 
+                         xytext = (0, 9), 
+                         textcoords = 'offset points',
+                         fontweight='bold')
+
+    # 5. Personalización de títulos y ejes
+    plt.title('Tasa de Ocupación de Airbnb en Sevilla según Festividades', fontsize=16, fontweight='bold', pad=20)
+    plt.ylabel('Porcentaje de Pisos Ocupados (%)', fontweight='bold')
+    plt.xlabel('Periodo', fontweight='bold')
+
+    # Ajustes visuales finales
+    plt.ylim(0, 100) 
+    plt.xticks(rotation=15) 
+    plt.tight_layout()
+    
+    plt.show()
+
+
+def visualizar_heatmap_ocupacion(df):
+    """
+    Genera un mapa de calor que muestra el porcentaje de ocupación 
+    cruzando los meses del año con los días de la semana.
+    """
+
+    # 1. Creamos copias locales de los nombres para no alterar el dataframe original si no es necesario
+    # Extraemos nombres de mes y día directamente de la columna 'date'
+    temp_df = df.copy()
+    temp_df['mes_nombre'] = temp_df['date'].dt.month_name()
+    temp_df['dia_semana_nombre'] = temp_df['date'].dt.day_name()
+
+    # 2. Creamos la tabla pivote (Media de ocupación * 100)
+    pivot_ocupacion = temp_df.pivot_table(
+        index='mes_nombre', 
+        columns='dia_semana_nombre', 
+        values='ocupado', 
+        aggfunc='mean'
+    ) * 100
+
+    # 3. Definimos el orden lógico cronológico
+    dias_ordenados = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    meses_ordenados = ['January', 'February', 'March', 'April', 'May', 'June', 
+                       'July', 'August', 'September', 'October', 'November', 'December']
+
+    # Reindexamos para que el gráfico no salga en orden alfabético (A-Z)
+    pivot_ocupacion = pivot_ocupacion.reindex(index=meses_ordenados, columns=dias_ordenados)
+
+    # 4. Configuración del Gráfico
+    plt.figure(figsize=(12, 8))
+    
+    # Usamos 'YlOrRd' (Amarillo-Naranja-Rojo) para que el rojo indique "lleno/difícil encontrar sitio"
+    sns.heatmap(pivot_ocupacion, 
+                annot=True, 
+                cmap='YlOrRd', 
+                fmt=".1f", 
+                linewidths=.5, 
+                cbar_kws={'label': '% Ocupación'})
+
+    # 5. Títulos y etiquetas
+    plt.title('Heatmap: Probabilidad de Ocupación en Sevilla (Mes vs Día)', fontsize=16, fontweight='bold', pad=15)
+    plt.ylabel('Mes', fontweight='bold')
+    plt.xlabel('Día de la Semana', fontweight='bold')
+    
+    plt.tight_layout()
+    plt.show()
+
+def demostrar_procesamiento_big_data(path_calendar):
+    """
+    Utiliza Dask para procesar el dataset de calendario de forma distribuida,
+    optimizando el uso de los núcleos del procesador.
+    """
+
+    inicio = time.time()
+
+    # 1. Lectura Perezosa (Lazy Loading)
+    # blocksize=None es clave para leer archivos comprimidos en Dask
+    ddf_calendar = dd.read_csv(path_calendar, compression='zip', blocksize=None)
+
+    # 2. Transformación de datos distribuida
+    # Mapeamos la disponibilidad (f -> ocupado, t -> libre)
+    ddf_calendar['ocupado'] = ddf_calendar['available'].map(
+        {'f': 1, 't': 0, False: 1, True: 0}, 
+        meta=('available', 'int8')
+    )
+
+    # 3. Operación de Agrupación (Plan de ejecución)
+    ocupacion_por_dia_dask = ddf_calendar.groupby('date')['ocupado'].mean()
+
+    print("⏳ Plan de ejecución creado. Dask está ejecutando en paralelo...")
+
+    # 4. Ejecución real (.compute)
+    # Aquí es donde se activan todos los núcleos del Mac
+    ocupacion_por_dia_pandas = ocupacion_por_dia_dask.compute()
+
+    fin = time.time()
+    tiempo_total = fin - inicio
+
+    print(f"✅ ¡Cálculo completado en {tiempo_total:.2f} segundos!")
+    print("-" * 40)
+    print("Top 5 Días con mayor ocupación (Cálculo Distribuido):")
+    
+    # Formateamos el índice y mostramos resultados
+    ocupacion_por_dia_pandas.index = pd.to_datetime(ocupacion_por_dia_pandas.index)
+    top_5 = (ocupacion_por_dia_pandas * 100).sort_values(ascending=False).head(5)
+    print(top_5)
+    
+    return ocupacion_por_dia_pandas
