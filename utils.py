@@ -36,11 +36,16 @@ def librerias():
 
 def pipeline_completo_preparacion():
     """
-    Configura el entorno (GPU/CPU), gestiona librerías y realiza la limpieza 
-    de Listings, Calendar, Renta y ahora también el Muestreo de Reviews.
+    Pipeline integral final:
+    Hardware + Librerías + Limpieza de 4 datasets + Join Espacial + Exportación.
     """
+    import os
+    import subprocess
+    import sys
+    import warnings
+    import re
     
-    # 1. GESTIÓN DE LIBRERÍAS (Añadimos torch y tqdm)
+    # --- 1. GESTIÓN DE LIBRERÍAS (Añadido geopandas) ---
     def install_if_missing(package):
         try:
             __import__(package)
@@ -48,67 +53,87 @@ def pipeline_completo_preparacion():
             print(f"📦 Instalando {package}...")
             subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
-    for lib in ['pandas', 'numpy', 'torch', 'tqdm']:
+    # Importante añadir geopandas aquí
+    for lib in ['pandas', 'numpy', 'torch', 'tqdm', 'geopandas']:
         install_if_missing(lib)
     
+    import pandas as pd
+    import numpy as np
+    import torch
+    import geopandas as gpd
+    from tqdm import tqdm
 
-    # 2. CONFIGURACIÓN DE HARDWARE Y WARNINGS
+    # --- 2. CONFIGURACIÓN DE ENTORNO ---
     warnings.filterwarnings('ignore')
-    tqdm.pandas() # Barra de progreso para Pandas
-    
-    PATH_DATA = 'data'
+    tqdm.pandas()
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__)) if '__file__' in locals() else os.getcwd()
+    PATH_DATA = os.path.join(BASE_DIR, 'data')
+
     if not os.path.exists(PATH_DATA):
-        print(f"❌ Error: No se encuentra la carpeta '{PATH_DATA}'.")
+        print(f"❌ Error: No se encuentra la carpeta '{PATH_DATA}'")
         return None
 
-    # Verificación de aceleración por Hardware (GPU o Apple Silicon)
-    if torch.cuda.is_available():
-        device = 0
-        print("🚀 Procesando con: GPU (NVIDIA)")
-    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-        device = 0
-        print("🚀 Procesando con: GPU (Mac Apple Silicon)")
-    else:
-        device = -1
-        print("🐢 Procesando con: CPU (Paciencia...)")
+    # --- 3. PROCESAMIENTO DE LISTINGS ---
+    final_cols = [
+        'id', 'host_id', 'host_is_superhost', 'neighbourhood_cleansed', 
+        'neighbourhood_group_cleansed', 'latitude', 'longitude', 
+        'property_type', 'room_type', 'accommodates', 'bathrooms_text', 
+        'bedrooms', 'price', 'minimum_nights', 'number_of_reviews', 
+        'review_scores_rating', 'license', 'instant_bookable',
+        'availability_365', 'calculated_host_listings_count', 
+        'reviews_per_month', 'amenities'
+    ]
+    ruta_listings = os.path.join(PATH_DATA, 'listings.csv')
+    df_listings = pd.read_csv(ruta_listings, usecols=final_cols, low_memory=False) if os.path.exists(ruta_listings) else pd.DataFrame()
+    if not df_listings.empty:
+        df_listings['price'] = df_listings['price'].replace(r'[\$,]', '', regex=True).astype(float)
 
-    # 3. LIMPIEZA DE DATASETS (Listings, Calendar, Renta) - Tu lógica previa
+    # --- 4. PROCESAMIENTO DE CALENDAR ---
+    ruta_calendar = os.path.join(PATH_DATA, 'calendar.csv.zip')
+    if os.path.exists(ruta_calendar):
+        df_calendar = pd.read_csv(ruta_calendar, compression='zip', low_memory=False)
+        df_calendar['date'] = pd.to_datetime(df_calendar['date'])
+        df_calendar['available'] = df_calendar['available'].map({'t': True, 'f': False})
+        df_calendar.to_csv(os.path.join(PATH_DATA, 'calendar_limpio.csv.zip'), index=False, compression='zip')
+
+    # --- 5. PROCESAMIENTO DE RENTA (INE) ---
+    ruta_renta_raw = os.path.join(PATH_DATA, 'renta_provincia_sevilla.csv')
+    df_renta = pd.DataFrame()
+    if os.path.exists(ruta_renta_raw):
+        df_renta_raw = pd.read_csv(ruta_renta_raw, sep=';', encoding='latin-1', decimal=',')
+        df_renta = df_renta_raw[df_renta_raw['Secciones'].astype(str).str.contains('^41091')].copy()
+        if 'Total' in df_renta.columns and df_renta['Total'].dtype == 'object':
+            df_renta['Total'] = df_renta['Total'].str.replace('.', '', regex=False).astype(float)
+
+    # --- 6. CARGA DEL MAPA ---
+    ruta_mapa = os.path.join(PATH_DATA, 'secciones_sevilla.json') 
+    mapa_sevilla = gpd.read_file(ruta_mapa) if os.path.exists(ruta_mapa) else None
+
+    # --- 7. EXPORTACIÓN FINAL CON JOIN ESPACIAL ---
+    if mapa_sevilla is not None and not df_listings.empty:
+        print("🌍 Iniciando Join Espacial...")
+        gdf_listings = gpd.GeoDataFrame(
+            df_listings, 
+            geometry=gpd.points_from_xy(df_listings.longitude, df_listings.latitude), 
+            crs="EPSG:4326"
+        ).to_crs(mapa_sevilla.crs)
+
+        pisos_con_seccion = gpd.sjoin(gdf_listings, mapa_sevilla[['CUSEC', 'geometry']], how="left", predicate="intersects")
+
+        if not df_renta.empty:
+            df_renta['Secciones'] = df_renta['Secciones'].astype(str)
+            pisos_con_seccion['CUSEC'] = pisos_con_seccion['CUSEC'].astype(str)
+            col_renta = 'Total' if 'Total' in df_renta.columns else 'renta_media'
+            
+            dataset_final = pd.merge(pisos_con_seccion, df_renta[['Secciones', col_renta]], 
+                                    left_on='CUSEC', right_on='Secciones', how='left')
+
+            dataset_final.to_csv(os.path.join(PATH_DATA, 'dataset_final.csv'), index=False)
+            print("🏁 ¡HECHO! Dataset final guardado.")
+            return dataset_final # Devuelve el dataframe listo
     
-    # [Aquí va tu lógica de listings, calendar y renta que ya teníamos]
-    # (La mantengo interna para que la función devuelva todo)
-    
-    # 4. LIMPIEZA Y MUESTREO ESTRATIFICADO DE REVIEWS (Nuevo Bloque)
-    ruta_reviews = os.path.join(PATH_DATA, 'reviews.csv')
-
-    try:
-        # Cargamos solo lo necesario para ahorrar RAM
-        df_reviews = pd.read_csv(ruta_reviews, usecols=['listing_id', 'comments', 'date']).dropna()
-        # Ordenamos para quedarnos con las 10 más recientes por piso
-        df_reviews = df_reviews.sort_values(by=['listing_id', 'date'], ascending=[True, False])
-    except Exception:
-        df_reviews = pd.read_csv(ruta_reviews, usecols=['listing_id', 'comments']).dropna()
-
-    print("📊 Aplicando muestreo (Top 10 reseñas por alojamiento)...")
-    df_reviews = df_reviews.groupby('listing_id').head(10).copy()
-
-    def limpiar_texto(texto):
-        texto = str(texto)
-        # Quita etiquetas HTML y saltos de línea
-        texto = re.sub(r'<br\s*/?>|[\r\n]+', ' ', texto)
-        # Quita espacios dobles
-        return re.sub(r'\s+', ' ', texto).strip()
-
-    print("🧹 Limpiando texto de comentarios...")
-    df_reviews['comments'] = df_reviews['comments'].progress_apply(limpiar_texto)
-    
-    # Filtramos comentarios basura o muy cortos
-    df_reviews = df_reviews[df_reviews['comments'].str.len() > 10].copy()
-
-    print(f"✅ Proceso finalizado. {len(df_reviews)} reseñas listas.")
-    
-    # Ahora la función devuelve 4 DataFrames en lugar de 3
-    # (Asegúrate de recibir los 4 cuando llames a la función)
-    return df_reviews
+    print("⚠️ El proceso terminó pero no se pudo realizar el Join Espacial.")
+    return df_listings, df_calendar, df_renta, mapa_sevilla
 
 
 def preparar_fechas_y_eventos(df):
@@ -118,7 +143,7 @@ def preparar_fechas_y_eventos(df):
     """
     import numpy as np
     
-    # 1. Variables básicas de tiempo (Lo que pedía el cuaderno original)
+    # 1. Variables básicas de tiempo
     df['mes'] = df['date'].dt.month
     df['dia_semana'] = df['date'].dt.day_name()
     df['es_finde'] = df['date'].dt.dayofweek.isin([4, 5, 6])
@@ -319,3 +344,20 @@ def demostrar_procesamiento_big_data(path_calendar):
     print(top_5)
     
     return ocupacion_por_dia_pandas
+
+def preparar_datos_prediccion(df):
+    """
+    Consolida la lógica del Notebook 05 para que la App y los Notebooks
+    usen exactamente el mismo preprocesamiento.
+    """
+    # Mapeo de tipos de habitación
+    dict_room = {'Entire home/apt': 3, 'Private room': 2, 'Shared room': 1, 'Hotel room': 2}
+    df['room_type_num'] = df['room_type'].map(dict_room).fillna(3)
+    
+    # Extracción de amenities
+    amenities_lower = df['amenities'].str.lower().fillna('')
+    df['has_pool'] = amenities_lower.str.contains('pool').astype(int)
+    df['has_ac'] = amenities_lower.str.contains('air conditioning').astype(int)
+    # ... (añadir el resto de amenities del Notebook 05)
+    
+    return df
