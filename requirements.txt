@@ -1,4 +1,5 @@
 pandas
+numpy
 geopandas
 scikit-learn
 streamlit
@@ -6,3 +7,11 @@ matplotlib
 seaborn
 folium
 dagster
+dask
+transformers
+tf_keras
+torch
+tqdm
+tensorflow
+plotly
+joblib

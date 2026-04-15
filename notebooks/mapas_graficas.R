@@ -11,10 +11,10 @@ library(htmlwidgets)
 library(crosstalk) # Fundamental para añadir los filtros interactivos al HTML
 library(htmltools) # Para maquetar la vista del mapa y los filtros
 
-# 1. Carga de datos
-ruta_airbnb <- "../data/listings_limpio.csv"
-ruta_renta <- "../data/renta_sevilla_capital_limpio.csv"
-ruta_poligonos <- "../data/mapa_sevilla.geojson"
+# 1. Carga de datos (Rutas corregidas desde la raíz del proyecto)
+ruta_airbnb <- "data/dataset_ia_final.csv" # Usamos el dataset limpio definitivo
+ruta_renta <- "data/renta_sevilla_capital_limpio.csv"
+ruta_poligonos <- "data/mapa_sevilla.geojson"
 
 airbnb_df <- read_csv(ruta_airbnb, show_col_types = FALSE)
 renta_df <- read_csv(ruta_renta, show_col_types = FALSE)
@@ -24,6 +24,7 @@ mapa_base <- st_read(ruta_poligonos, quiet = TRUE)
 # 2. Preprocesamiento
 # ====================================================================
 
+# Preparación de la base municipal para el cruce de rentas
 mapa_base$CDIS_num <- as.numeric(as.character(mapa_base$CDIS))
 renta_df$Distritos_num <- as.numeric(sub(".*distrito (\\d+).*", "\\1", 
                                          as.character(renta_df$Distritos), 
@@ -35,7 +36,7 @@ renta_resumen <- renta_df %>%
   group_by(Distritos_num) %>%
   summarise(Renta_Media = mean(Total_num, na.rm = TRUE))
 
-# Limpio el precio de Airbnb por si viene con simbolos de dolar o comas para poder usarlo en el slider
+# Me aseguro de que el precio del dataset final sea puramente numérico para el slider
 airbnb_df$price_num <- as.numeric(gsub("[^0-9.]", "", as.character(airbnb_df$price)))
 
 mapa_final_sf <- mapa_base %>%
@@ -68,7 +69,8 @@ mapa_estatico <- ggplot() +
   ) +
   labs(title = "Sevilla: Nivel de Renta y Alojamientos Turísticos")
 
-ggsave("../data/mapa_estatico_renta_airbnb.png", plot = mapa_estatico, width = 12, height = 10, bg = "white")
+# Guardamos en la carpeta data
+ggsave("data/mapa_estatico_renta_airbnb.png", plot = mapa_estatico, width = 12, height = 10, bg = "white")
 
 # ====================================================================
 # 4. MAPA DINÁMICO (HTML) CON FILTROS CROSSTALK
@@ -77,10 +79,10 @@ ggsave("../data/mapa_estatico_renta_airbnb.png", plot = mapa_estatico, width = 1
 renta_para_mapa <- unname(mapa_final_sf$Renta_Media)
 pal <- colorNumeric("YlGnBu", domain = renta_para_mapa, na.color = "#F2F4F4")
 
-# Creo el objeto SharedData. Esto es lo que permite que los filtros hablen con el mapa en el navegador del cliente.
+# Creo el objeto SharedData. Esto permite que los filtros hablen con el mapa en el navegador
 datos_compartidos <- SharedData$new(airbnb_final_sf)
 
-# Monto el mapa base de Leaflet pero pasandole el objeto compartido en vez del dataframe normal
+# Monto el mapa base de Leaflet usando el objeto compartido
 mapa_leaflet <- leaflet(datos_compartidos, width = "100%", height = 600) %>%
   addProviderTiles(providers$CartoDB.Positron) %>%
   fitBounds(lng1 = limites["xmin"], lat1 = limites["ymin"],
@@ -89,28 +91,29 @@ mapa_leaflet <- leaflet(datos_compartidos, width = "100%", height = 600) %>%
               fillColor = ~pal(Renta_Media),
               weight = 1, color = "white", fillOpacity = 0.6,
               popup = ~paste("Distrito:", CDIS_num, "<br>Renta:", round(Renta_Media, 2), "€")) %>%
-  # Es importante que el circle marker tire de los datos_compartidos para que se oculten al filtrar
+  # Los puntos ahora responden en tiempo real a los filtros
   addCircleMarkers(radius = 3, color = "#E74C3C", stroke = FALSE, fillOpacity = 0.6,
                    popup = ~paste("Precio:", price_num, "€<br>Tipo:", room_type, "<br>Capacidad:", accommodates)) %>%
   addLegend(pal = pal, 
             values = renta_para_mapa,
             opacity = 0.7, 
-            title = "Renta (€)", 
+            title = "Renta Media (€)", 
             position = "bottomright")
 
 # Defino los controles de la interfaz de usuario
 filtros_ui <- tagList(
-  tags$h3("Filtros del mercado"),
+  tags$h3("Filtros del mercado interactivo"),
   filter_slider("precio", "Precio por noche (€)", datos_compartidos, ~price_num, width = "100%"),
   filter_select("tipo", "Tipo de alojamiento", datos_compartidos, ~room_type, multiple = TRUE),
   filter_slider("capacidad", "Capacidad (Huéspedes)", datos_compartidos, ~accommodates, width = "100%", step = 1)
 )
 
-# Empaqueto los filtros y el mapa en un layout de columnas usando bscols
+# Empaqueto los filtros y el mapa en un layout de columnas (3 cols filtros, 9 cols mapa)
 mapa_dinamico_final <- bscols(
-  widths = c(3, 9), # 3 columnas para filtros, 9 para el mapa (de un grid de 12)
+  widths = c(3, 9), 
   filtros_ui,
   mapa_leaflet
 )
 
-# Guardo el resultado. Uso save_html porque el objeto final es una estructura HTML de
+# Guardamos el HTML final interactivo
+save_html(mapa_dinamico_final, file = "data/mapa_interactivo_filtros.html")
