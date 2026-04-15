@@ -13,3 +13,5 @@ tf_keras
 torch
 tqdm
 tensorflow
+plotly
+joblib

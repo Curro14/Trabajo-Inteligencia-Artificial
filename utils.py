@@ -1,49 +1,36 @@
 # ==========================================
 # CONFIGURACIÓN GLOBAL DEL PROYECTO
 # ==========================================
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+import re
+import sys
+import subprocess
+import importlib
+import warnings
+import geopandas as gpd
+import dask.dataframe as dd
+import time
+import joblib
+from tqdm.auto import tqdm
 
-def librerias():
-    import pandas as pd
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    import os
-    import re
-    import sys
-    import subprocess
-    import importlib
-    import warnings
-    import geopandas as gpd
-    from transformers import pipeline
-    import dask.dataframe as dd
-    import time
-
-    from tqdm.auto import tqdm
-
-    # Preprocesamiento (Scikit-Learn)
-    from sklearn.model_selection import train_test_split
-    from sklearn.preprocessing import StandardScaler, OneHotEncoder
-    from sklearn.compose import ColumnTransformer
-
-    # Deep Learning (TensorFlow & Keras)
-    import tensorflow as tf
-    from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Dense, Dropout
-    from tensorflow.keras.callbacks import EarlyStopping
-    
-    
-    return pd, np, plt, sns, os, re, sys, subprocess, importlib, warnings, gpd, pipeline, dd, time, tqdm, train_test_split, StandardScaler, OneHotEncoder, ColumnTransformer, Sequential, Dense, Dropout, EarlyStopping
+# Machine Learning & Deep Learning
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
 
 def pipeline_completo_preparacion():
     """
     Pipeline integral final:
     Hardware + Librerías + Limpieza de 4 datasets + Join Espacial + Exportación.
     """
-    import os
-    import subprocess
-    import sys
-    import warnings
-    import re
     
     # --- 1. GESTIÓN DE LIBRERÍAS (Añadido geopandas) ---
     def install_if_missing(package):
@@ -57,11 +44,6 @@ def pipeline_completo_preparacion():
     for lib in ['pandas', 'numpy', 'torch', 'tqdm', 'geopandas']:
         install_if_missing(lib)
     
-    import pandas as pd
-    import numpy as np
-    import torch
-    import geopandas as gpd
-    from tqdm import tqdm
 
     # --- 2. CONFIGURACIÓN DE ENTORNO ---
     warnings.filterwarnings('ignore')
@@ -141,7 +123,6 @@ def preparar_fechas_y_eventos(df):
     Realiza la ingeniería de variables temporales y aplica el etiquetado 
     avanzado de eventos (Navidad, Puentes, Feria y Semana Santa 2024-2026).
     """
-    import numpy as np
     
     # 1. Variables básicas de tiempo
     df['mes'] = df['date'].dt.month
@@ -344,6 +325,34 @@ def demostrar_procesamiento_big_data(path_calendar):
     print(top_5)
     
     return ocupacion_por_dia_pandas
+
+def benchmark_pandas(path_zip):
+    """
+    Realiza el mismo proceso que la función de Dask pero usando Pandas puro
+    para medir el tiempo de ejecución.
+    """
+    import pandas as pd
+    import time
+    
+    inicio = time.time()
+    # Carga completa en RAM
+    df = pd.read_csv(path_zip, compression='zip')
+    # Transformación
+    df['ocupado'] = df['available'].map({'f': 1, 't': 0, False: 1, True: 0})
+    # Agregación
+    resumen = df.groupby('date')['ocupado'].mean()
+    fin = time.time()
+    
+    return fin - inicio
+
+def clasificar_propietario(df):
+    """
+    Clasifica como Particular (1-5 pisos) o Empresa (>5 pisos)
+    """
+    df['tipo_propietario'] = df['calculated_host_listings_count'].apply(
+        lambda x: 'Particular' if x <= 5 else 'Empresa'
+    )
+    return df
 
 def preparar_datos_prediccion(df):
     """
