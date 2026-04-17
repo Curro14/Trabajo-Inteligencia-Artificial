@@ -11,11 +11,37 @@ import sys
 import subprocess
 import importlib
 import warnings
-import geopandas as gpd
-import dask.dataframe as dd
 import time
 import joblib
+import shutil  # <--- Soluciona el error de "shutil is not defined"
 from tqdm.auto import tqdm
+
+# RUTAS GLOBALES (Soluciona el error de "PATH_DATA is not defined")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__)) if '__file__' in locals() else os.getcwd()
+PATH_DATA = os.path.join(BASE_DIR, 'data')
+
+# Ocultar warnings molestos de TensorFlow en la terminal
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+import tensorflow as tf
+tf.get_logger().setLevel('ERROR')
+
+# Machine Learning & Deep Learning
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+
+# Importaciones condicionales para Big Data
+try:
+    import geopandas as gpd
+except ImportError:
+    pass
+try:
+    import dask.dataframe as dd
+except ImportError:
+    pass
 
 # Machine Learning & Deep Learning
 from sklearn.model_selection import train_test_split
@@ -118,222 +144,172 @@ def pipeline_completo_preparacion():
     return df_listings, df_calendar, df_renta, mapa_sevilla
 
 
-def preparar_fechas_y_eventos(df):
+
+import pandas as pd
+import numpy as np
+import re
+
+def clasificar_propietario(df):
     """
-    Realiza la ingeniería de variables temporales y aplica el etiquetado 
-    avanzado de eventos (Navidad, Puentes, Feria y Semana Santa 2024-2026).
+    Clasifica al anfitrión como Particular (<= 5 pisos) o Empresa (> 5 pisos).
     """
-    
-    # 1. Variables básicas de tiempo
-    df['mes'] = df['date'].dt.month
-    df['dia_semana'] = df['date'].dt.day_name()
-    df['es_finde'] = df['date'].dt.dayofweek.isin([4, 5, 6])
-    
-    # 2. Inicializar columna de evento
-    df['evento'] = 'Normal'
-
-    # 3. Aplicar Máscaras de Eventos (Lógica Avanzada)
-
-    # NAVIDAD (Fijo: 22 Dic al 6 Ene)
-    mask_navidad = ((df['date'].dt.month == 12) & (df['date'].dt.day >= 22)) | \
-                   ((df['date'].dt.month == 1) & (df['date'].dt.day <= 6))
-    df.loc[mask_navidad, 'evento'] = 'Navidad'
-
-    # PUENTES NACIONALES (Fechas fijas aproximadas)
-    df.loc[(df['date'].dt.month == 12) & (df['date'].dt.day.between(5, 10)), 'evento'] = 'Puente Diciembre'
-    df.loc[(df['date'].dt.month == 10) & (df['date'].dt.day.between(11, 15)), 'evento'] = 'Puente Hispanidad'
-    df.loc[(df['date'].dt.month == 5) & (df['date'].dt.day.between(1, 3)), 'evento'] = 'Puente de Mayo'
-
-    # FERIA DE ABRIL (Fechas 2025 y 2026)
-    mask_feria = ((df['date'] >= '2025-05-05') & (df['date'] <= '2025-05-11')) | \
-                 ((df['date'] >= '2026-04-20') & (df['date'] <= '2026-04-26'))
-    df.loc[mask_feria, 'evento'] = 'Feria de Abril'
-
-    # SEMANA SANTA (Fechas 2025 y 2026)
-    mask_ss = ((df['date'] >= '2025-04-13') & (df['date'] <= '2025-04-20')) | \
-              ((df['date'] >= '2026-03-29') & (df['date'] <= '2026-04-05'))
-    df.loc[mask_ss, 'evento'] = 'Semana Santa'
-
-    # 4. Creación de la columna 'periodo' (Consolidando Evento vs Finde/Semana)
-    df['periodo'] = np.where(
-        df['evento'] != 'Normal', 
-        df['evento'], 
-        np.where(df['es_finde'], 'Finde Normal', 'Semana Normal')
-    )
-    
+    df = df.copy()
+    if 'calculated_host_listings_count' in df.columns:
+        df['tipo_propietario'] = df['calculated_host_listings_count'].apply(
+            lambda x: 'Particular' if x <= 5 else 'Empresa'
+        )
     return df
 
+def preparar_datos_prediccion(df):
+    """
+    Clon exacto de la lógica de Ingeniería de Características del Notebook 05 (KNN).
+    Aplica las transformaciones para que coincidan con los datos de entrenamiento.
+    """
+    df = df.copy()
 
-def integrar_informacion_barrios(df_calendar, df_listings, df_renta):
-    """
-    Cruza el calendario con listings para obtener barrios y con el INE para rentas.
-    """
-    # Unimos con listings para traer barrios y tipo de habitación
-    df_merged = pd.merge(df_calendar, 
-                         df_listings[['id', 'neighbourhood_group_cleansed', 'room_type']], 
-                         left_on='listing_id', right_on='id', how='left')
+    # 1. Baños (Extracción de decimales/enteros)
+    def extraer_banos(texto):
+        if pd.isna(texto): return 1.0
+        numeros = re.findall(r"[-+]?\d*\.\d+|\d+", str(texto))
+        return float(numeros[0]) if numeros else 1.0
+
+    if 'bathrooms_text' in df.columns:
+        df['bathrooms_num'] = df['bathrooms_text'].apply(extraer_banos)
+    elif 'bathrooms_num' not in df.columns:
+        df['bathrooms_num'] = 1.0
+
+    # 2. Habitaciones y Capacidad (Relleno de nulos)
+    if 'bedrooms' in df.columns:
+        df['bedrooms'] = df['bedrooms'].fillna(1.0)
+    if 'accommodates' in df.columns:
+        df['accommodates'] = df['accommodates'].fillna(2.0)
+
+    # 3. Tipo de alojamiento
+    if 'room_type' in df.columns:
+        dict_room = {'Entire home/apt': 3, 'Private room': 2, 'Shared room': 1, 'Hotel room': 2}
+        df['room_type_num'] = df['room_type'].map(dict_room).fillna(3)
+
+    # 4. Confianza y Reputación (Superhost y Reseñas)
+    if 'host_is_superhost' in df.columns:
+        df['host_is_superhost'] = df['host_is_superhost'].map({'t': 1, 'f': 0}).fillna(0)
     
-    # Unimos con los datos de renta del INE
-    df_final = pd.merge(df_merged, 
-                        df_renta[['distrito_limpio', 'Total']], 
-                        left_on='neighbourhood_group_cleansed', 
-                        right_on='distrito_limpio', how='left')
-    
-    return df_final
+    if 'number_of_reviews' in df.columns:
+        df['number_of_reviews'] = df['number_of_reviews'].fillna(0)
 
-def calcular_metricas_rentabilidad(df):
-    """
-    Calcula la tasa de ocupación y estima la ganancia por anuncio.
-    """
-    # 1 representa ocupado, 0 disponible
-    df['ocupado'] = df['available'].apply(lambda x: 0 if x else 1)
-    
-    # Resumen por evento
-    resumen_evento = df.groupby('evento').agg({
-        'price': 'mean',
-        'ocupado': 'mean'
-    }).reset_index()
-    
-    resumen_evento['ocupacion_pct'] = resumen_evento['ocupado'] * 100
-    
-    return resumen_evento
+    # 5. Extracción de Amenities Premium (Binarias 1/0)
+    if 'amenities' in df.columns:
+        amenities_lower = df['amenities'].str.lower().fillna('')
+        df['has_pool'] = amenities_lower.str.contains('pool').astype(int)
+        df['has_ac'] = amenities_lower.str.contains('air conditioning').astype(int)
+        df['has_parking'] = amenities_lower.str.contains('parking').astype(int)
+        df['has_elevator'] = amenities_lower.str.contains('elevator').astype(int)
+        df['has_balcony'] = amenities_lower.str.contains('balcony|patio').astype(int)
+        df['has_workspace'] = amenities_lower.str.contains('workspace').astype(int)
 
-def visualizar_ocupacion_festividades(df):
-    """
-    Calcula y grafica la tasa de ocupación media para cada periodo 
-    y festividad definida en el dataset.
-    """
+    # 6. Renta Media Oficial del INE por Distrito
+    if 'neighbourhood_group_cleansed' in df.columns:
+        rentas_sevilla = {
+            'Los Remedios': 30000.0, 'Nervión': 28000.0, 'Casco Antiguo': 26000.0,
+            'Sur': 25000.0, 'Triana': 24000.0, 'San Pablo - Santa Justa': 22000.0,
+            'Macarena': 20000.0, 'Bellavista - La Palmera': 21000.0,
+            'Este - Alcosa - Torreblanca': 19000.0, 'Norte': 17000.0, 'Cerro - Amate': 16000.0
+        }
+        df['renta_media'] = df['neighbourhood_group_cleansed'].map(rentas_sevilla).fillna(22000.0)
 
-    # 1. Cálculo de la ocupación media por periodo
-    # Multiplicamos por 100 para obtener el porcentaje
-    resumen_ocupacion = (df.groupby('periodo')['ocupado'].mean() * 100).sort_values(ascending=False)
+    # 7. Score Sentimiento (IA de Reseñas)
+    if 'score_sentimiento' in df.columns:
+        df['score_sentimiento'] = df['score_sentimiento'].fillna(0.5)
+    else:
+        df['score_sentimiento'] = 0.5
 
-    # 2. Configuración del estilo y tamaño
-    plt.figure(figsize=(12, 6))
-    sns.set_theme(style="whitegrid")
+    # 8. Limpieza de Precios (Solo aplica si el df tiene la columna 'price')
+    if 'price' in df.columns and df['price'].dtype == 'object':
+        df['price'] = df['price'].astype(str).str.replace(r'[^\d.]', '', regex=True)
+        df['price'] = pd.to_numeric(df['price'], errors='coerce')
 
-    # 3. Creación del gráfico de barras
-    grafico = sns.barplot(x=resumen_ocupacion.index, y=resumen_ocupacion.values, palette="mako")
+    return df
 
-    # 4. Añadir etiquetas de porcentaje sobre las barras
-    for p in grafico.patches:
-        grafico.annotate(f"{p.get_height():.1f}%", 
-                         (p.get_x() + p.get_width() / 2., p.get_height()), 
-                         ha = 'center', va = 'center', 
-                         xytext = (0, 9), 
-                         textcoords = 'offset points',
-                         fontweight='bold')
+# =============================================================================
+# MÓDULO VISUAL 1: GRÁFICOS DINÁMICOS PARA USUARIO FINAL (PLOTLY - PESTAÑA 2)
+# =============================================================================
+import plotly.express as px
 
-    # 5. Personalización de títulos y ejes
-    plt.title('Tasa de Ocupación de Airbnb en Sevilla según Festividades', fontsize=16, fontweight='bold', pad=20)
-    plt.ylabel('Porcentaje de Pisos Ocupados (%)', fontweight='bold')
-    plt.xlabel('Periodo', fontweight='bold')
-
-    # Ajustes visuales finales
-    plt.ylim(0, 100) 
-    plt.xticks(rotation=15) 
-    plt.tight_layout()
-    
-    plt.show()
-
-
-def visualizar_heatmap_ocupacion(df):
-    """
-    Genera un mapa de calor que muestra el porcentaje de ocupación 
-    cruzando los meses del año con los días de la semana.
-    """
-
-    # 1. Creamos copias locales de los nombres para no alterar el dataframe original si no es necesario
-    # Extraemos nombres de mes y día directamente de la columna 'date'
-    temp_df = df.copy()
-    temp_df['mes_nombre'] = temp_df['date'].dt.month_name()
-    temp_df['dia_semana_nombre'] = temp_df['date'].dt.day_name()
-
-    # 2. Creamos la tabla pivote (Media de ocupación * 100)
-    pivot_ocupacion = temp_df.pivot_table(
-        index='mes_nombre', 
-        columns='dia_semana_nombre', 
-        values='ocupado', 
-        aggfunc='mean'
-    ) * 100
-
-    # 3. Definimos el orden lógico cronológico
-    dias_ordenados = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    meses_ordenados = ['January', 'February', 'March', 'April', 'May', 'June', 
-                       'July', 'August', 'September', 'October', 'November', 'December']
-
-    # Reindexamos para que el gráfico no salga en orden alfabético (A-Z)
-    pivot_ocupacion = pivot_ocupacion.reindex(index=meses_ordenados, columns=dias_ordenados)
-
-    # 4. Configuración del Gráfico
-    plt.figure(figsize=(12, 8))
-    
-    # Usamos 'YlOrRd' (Amarillo-Naranja-Rojo) para que el rojo indique "lleno/difícil encontrar sitio"
-    sns.heatmap(pivot_ocupacion, 
-                annot=True, 
-                cmap='YlOrRd', 
-                fmt=".1f", 
-                linewidths=.5, 
-                cbar_kws={'label': '% Ocupación'})
-
-    # 5. Títulos y etiquetas
-    plt.title('Heatmap: Probabilidad de Ocupación en Sevilla (Mes vs Día)', fontsize=16, fontweight='bold', pad=15)
-    plt.ylabel('Mes', fontweight='bold')
-    plt.xlabel('Día de la Semana', fontweight='bold')
-    
-    plt.tight_layout()
-    plt.show()
-
-def demostrar_procesamiento_big_data(path_calendar):
-    """
-    Utiliza Dask para procesar el dataset de calendario de forma distribuida,
-    optimizando el uso de los núcleos del procesador.
-    """
-
-    inicio = time.time()
-
-    # 1. Lectura Perezosa (Lazy Loading)
-    # blocksize=None es clave para leer archivos comprimidos en Dask
-    ddf_calendar = dd.read_csv(path_calendar, compression='zip', blocksize=None)
-
-    # 2. Transformación de datos distribuida
-    # Mapeamos la disponibilidad (f -> ocupado, t -> libre)
-    ddf_calendar['ocupado'] = ddf_calendar['available'].map(
-        {'f': 1, 't': 0, False: 1, True: 0}, 
-        meta=('available', 'int8')
+def generar_mapa_interactivo(df):
+    fig = px.scatter_mapbox(
+        df, lat="latitude", lon="longitude", color="price", 
+        size="accommodates", hover_name="neighbourhood_cleansed", 
+        hover_data={"price": ":.2f", "bedrooms": True, "accommodates": True, "latitude": False, "longitude": False},
+        color_continuous_scale=px.colors.sequential.Agsunset,
+        zoom=12, height=500, title="📍 Mapa de alojamientos disponibles"
     )
+    fig.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":40,"l":0,"b":0}, paper_bgcolor='rgba(0,0,0,0)')
+    return fig
 
-    # 3. Operación de Agrupación (Plan de ejecución)
-    ocupacion_por_dia_dask = ddf_calendar.groupby('date')['ocupado'].mean()
+def grafico_precio_medio_barrio(df):
+    df_agrupado = df.groupby('neighbourhood_group_cleansed')['price'].mean().reset_index().sort_values('price')
+    fig = px.bar(df_agrupado, x="price", y="neighbourhood_group_cleansed", orientation='h', title="1. ¿Cuánto cuesta la noche de media en cada distrito?", labels={"neighbourhood_group_cleansed": "", "price": "Precio Medio (€)"}, color="price", color_continuous_scale="Viridis")
+    fig.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+    return fig
 
-    print("⏳ Plan de ejecución creado. Dask está ejecutando en paralelo...")
+def grafico_distribucion_precios(df):
+    fig = px.histogram(df, x="price", nbins=30, title="2. ¿En qué rango de precios hay más opciones?", labels={"price": "Precio por Noche (€)", "count": "Número de Alojamientos"}, color_discrete_sequence=['#3498db'])
+    fig.update_layout(yaxis_title="Cantidad de Alojamientos", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+    return fig
 
-    # 4. Ejecución real (.compute)
-    # Aquí es donde se activan todos los núcleos del Mac
-    ocupacion_por_dia_pandas = ocupacion_por_dia_dask.compute()
+def grafico_oferta_por_barrio(df):
+    conteo = df['neighbourhood_group_cleansed'].value_counts().reset_index()
+    conteo.columns = ['Distrito', 'Alojamientos']
+    fig = px.pie(conteo, values='Alojamientos', names='Distrito', hole=0.4, title="3. ¿Dónde hay más cantidad de alojamientos?")
+    fig.update_traces(textposition='inside', textinfo='percent+label')
+    fig.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+    return fig
 
-    fin = time.time()
-    tiempo_total = fin - inicio
+def grafico_capacidad_vs_precio(df):
+    df_agrupado = df.groupby('accommodates')['price'].mean().reset_index()
+    fig = px.line(df_agrupado, x="accommodates", y="price", markers=True, title="4. ¿Cómo sube el precio según los huéspedes?", labels={"accommodates": "Número de Huéspedes", "price": "Precio Medio (€)"}, color_discrete_sequence=['#e74c3c'])
+    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+    return fig
 
-    print(f"✅ ¡Cálculo completado en {tiempo_total:.2f} segundos!")
-    print("-" * 40)
-    print("Top 5 Días con mayor ocupación (Cálculo Distribuido):")
+def grafico_tipo_habitaciones(df):
+    df['tipo_tamano'] = df['bedrooms'].apply(lambda x: f"{int(x)} Hab." if x <= 3 else "4+ Habs.")
+    conteo = df['tipo_tamano'].value_counts().reset_index()
+    conteo.columns = ['Tamaño', 'Cantidad']
+    fig = px.pie(conteo, values='Cantidad', names='Tamaño', title="5. ¿De cuántas habitaciones son los pisos?", color_discrete_sequence=px.colors.qualitative.Pastel)
+    fig.update_traces(textposition='inside', textinfo='percent+label')
+    fig.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+    return fig
+
+def grafico_top_barrios_baratos(df):
+    df_agrupado = df.groupby('neighbourhood_cleansed')['price'].mean().reset_index().sort_values('price').head(10)
+    fig = px.bar(df_agrupado, x="price", y="neighbourhood_cleansed", orientation='h', title="6. Top 10 Barrios más económicos", labels={"neighbourhood_cleansed": "Barrio", "price": "Precio (€)"}, color_discrete_sequence=['#2ecc71'])
+    fig.update_layout(yaxis={'categoryorder':'total descending'}, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+    return fig
+# =============================================================================
+# MÓDULO VISUAL 2: LECTURA DE GRÁFICOS ESTÁTICOS DE R (PESTAÑA 3)
+# =============================================================================
+# =============================================================================
+# MÓDULO VISUAL 2: LECTURA DE GRÁFICOS ESTÁTICOS DE R (PESTAÑA 3)
+# =============================================================================
+def obtener_rutas_graficos_r():
+    import os
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__)) if '__file__' in locals() else os.getcwd()
+    PATH_DATA = os.path.join(BASE_DIR, 'data')
     
-    # Formateamos el índice y mostramos resultados
-    ocupacion_por_dia_pandas.index = pd.to_datetime(ocupacion_por_dia_pandas.index)
-    top_5 = (ocupacion_por_dia_pandas * 100).sort_values(ascending=False).head(5)
-    print(top_5)
-    
-    return ocupacion_por_dia_pandas
+    return {
+        "precios_cajas": os.path.join(PATH_DATA, "r_1_cajas_precios.png"),
+        "precios_barras": os.path.join(PATH_DATA, "r_2_barras_precios.png"),
+        "capacidad": os.path.join(PATH_DATA, "r_3_capacidad_precio.png"),
+        "renta": os.path.join(PATH_DATA, "r_4_renta_vs_precio.png"),
+        "ocupacion": os.path.join(PATH_DATA, "r_5_ocupacion_tipo.png"),
+        "nlp": os.path.join(PATH_DATA, "r_6_nlp_vs_estrellas.png")
+    }
 
+# =============================================================================
+# MÓDULO BIG DATA: PANDAS VS DASK (PESTAÑA 3)
+# =============================================================================
 def benchmark_pandas(path_zip):
-    """
-    Realiza el mismo proceso que la función de Dask pero usando Pandas puro
-    para medir el tiempo de ejecución.
-    """
     import pandas as pd
     import time
-    
     inicio = time.time()
     # Carga completa en RAM
     df = pd.read_csv(path_zip, compression='zip')
@@ -342,31 +318,21 @@ def benchmark_pandas(path_zip):
     # Agregación
     resumen = df.groupby('date')['ocupado'].mean()
     fin = time.time()
-    
     return fin - inicio
 
-def clasificar_propietario(df):
-    """
-    Clasifica como Particular (1-5 pisos) o Empresa (>5 pisos)
-    """
-    df['tipo_propietario'] = df['calculated_host_listings_count'].apply(
-        lambda x: 'Particular' if x <= 5 else 'Empresa'
+def demostrar_procesamiento_big_data(path_calendar):
+    import dask.dataframe as dd
+    import time
+    # 1. Lectura Perezosa (Lazy Loading)
+    ddf_calendar = dd.read_csv(path_calendar, compression='zip', blocksize=None)
+    
+    # 2. Transformación de datos distribuida
+    ddf_calendar['ocupado'] = ddf_calendar['available'].map(
+        {'f': 1, 't': 0, False: 1, True: 0}, 
+        meta=('available', 'int8')
     )
-    return df
-
-def preparar_datos_prediccion(df):
-    """
-    Consolida la lógica del Notebook 05 para que la App y los Notebooks
-    usen exactamente el mismo preprocesamiento.
-    """
-    # Mapeo de tipos de habitación
-    dict_room = {'Entire home/apt': 3, 'Private room': 2, 'Shared room': 1, 'Hotel room': 2}
-    df['room_type_num'] = df['room_type'].map(dict_room).fillna(3)
     
-    # Extracción de amenities
-    amenities_lower = df['amenities'].str.lower().fillna('')
-    df['has_pool'] = amenities_lower.str.contains('pool').astype(int)
-    df['has_ac'] = amenities_lower.str.contains('air conditioning').astype(int)
-    # ... (añadir el resto de amenities del Notebook 05)
+    # 3. Operación de Agrupación (Plan de ejecución) y Cómputo Real
+    ocupacion_por_dia_pandas = ddf_calendar.groupby('date')['ocupado'].mean().compute()
     
-    return df
+    return ocupacion_por_dia_pandas
