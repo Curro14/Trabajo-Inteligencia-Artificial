@@ -7,6 +7,7 @@ import os
 import joblib
 import utils as ut
 import plotly.express as px
+import tensorflow as tf
 
 # -----------------------------------------------------------------------------
 # SECCION 1: CONFIGURACION DE LA PAGINA
@@ -47,37 +48,37 @@ with tab1:
 
     # --- Columna Izquierda: Datos Básicos ---
     with col_izq:
-        st.subheader("Ubicacion y Capacidad")
+        st.subheader("Ubicación y Capacidad")
         
         lista_barrios = sorted(list(dict_barrios.keys()))
         barrio_seleccionado = st.selectbox("Barrio de Sevilla", lista_barrios)
         
-        tipos_alojamiento = ["Piso/Casa completa", "Habitacion privada", "Habitacion compartida"]
+        tipos_alojamiento = ["Piso/Casa completa", "Habitación privada", "Habitación compartida"]
         tipo_alojamiento = st.selectbox("Tipo de alquiler", tipos_alojamiento)
-        map_tipo = {"Piso/Casa completa": 3, "Habitacion privada": 2, "Habitacion compartida": 1}
+        map_tipo = {"Piso/Casa completa": 3, "Habitación privada": 2, "Habitación compartida": 1}
         
         c1, c2, c3 = st.columns(3)
-        accommodates = c1.number_input("Huespedes", 1, 16, 2)
+        accommodates = c1.number_input("Huéspedes", 1, 16, 2)
         bedrooms = c2.number_input("Dormitorios", 1, 10, 1)
         bathrooms = c3.number_input("Baños", 0.5, 10.0, 1.0, step=0.5)
 
-        st.subheader("Reputacion")
+        st.subheader("Reputación")
         
         c4, c5 = st.columns(2)
         is_superhost = c4.toggle("Eres Superhost")
         
         opciones_reviews = [
-            "Ninguna (Nuevo)", "1 a 10 resenas", "11 a 50 resenas", 
-            "51 a 150 resenas", "151 a 300 resenas", "Mas de 300 resenas"
+            "Ninguna (Nuevo)", "1 a 10 reseñas", "11 a 50 reseñas", 
+            "51 a 150 reseñas", "151 a 300 reseñas", "Más de 300 reseñas"
         ]
-        rango_reviews = c5.selectbox("Volumen historico de resenas", opciones_reviews)
+        rango_reviews = c5.selectbox("Volumen histórico de reseñas", opciones_reviews)
         
         map_reviews = {
-            "Ninguna (Nuevo)": 0, "1 a 10 resenas": 5, "11 a 50 resenas": 30,
-            "51 a 150 resenas": 100, "151 a 300 resenas": 225, "Mas de 300 resenas": 400
+            "Ninguna (Nuevo)": 0, "1 a 10 reseñas": 5, "11 a 50 reseñas": 30,
+            "51 a 150 reseñas": 100, "151 a 300 reseñas": 225, "Más de 300 reseñas": 400
         }
         
-        score_sentimiento = st.slider("Nota media de resenas (0-1)", 0.0, 1.0, 0.85)
+        score_sentimiento = st.slider("Nota media de reseñas (0-1)", 0.0, 1.0, 0.85)
 
     # --- Columna Derecha: Amenities ---
     with col_der:
@@ -96,7 +97,7 @@ with tab1:
     st.divider()
 
     # --- Motor de Prediccion ---
-    if st.button("Calcular Precio Optimo", type="primary", use_container_width=True):
+    if st.button("Calcular Precio Óptimo", type="primary", use_container_width=True):
         lat = dict_barrios[barrio_seleccionado]['latitude']
         lon = dict_barrios[barrio_seleccionado]['longitude']
         renta = dict_barrios[barrio_seleccionado]['renta_media']
