@@ -286,32 +286,51 @@ with tab3:
         if st.button('🔥 Iniciar Comparativa de Velocidad', type="primary"):
             col_pan, col_das = st.columns(2)
             
+            # --- EJECUCIÓN DE BENCHMARKS ---
+            with st.spinner('Ejecutando comparativa...'):
+                # Test Pandas
+                tiempo_pandas = ut.benchmark_pandas(ruta_cal_zip)
+                
+                # Test Dask
+                import time
+                start_d = time.time()
+                _ = ut.demostrar_procesamiento_big_data(ruta_cal_zip)
+                tiempo_dask = time.time() - start_d
+
+            # --- MOSTRAR RESULTADOS EN COLUMNAS ---
             with col_pan:
                 st.write("🐢 **Pandas (Secuencial)**")
-                with st.spinner('Pandas está sufriendo...'):
-                    tiempo_pandas = ut.benchmark_pandas(ruta_cal_zip)
-                st.success(f"Tiempo Pandas: {tiempo_pandas:.2f} segundos")
+                # Si Pandas es más rápido (o igual), verde; si no, rojo
+                if tiempo_pandas <= tiempo_dask:
+                    st.success(f"Tiempo Pandas: {tiempo_pandas:.2f} segundos")
+                else:
+                    st.error(f"Tiempo Pandas: {tiempo_pandas:.2f} segundos")
                 st.caption("Carga todo el archivo en un solo núcleo de la CPU.")
             
             with col_das:
                 st.write("🚀 **Dask (Multiprocesamiento)**")
-                with st.spinner('Dask está repartiendo el trabajo...'):
-                    import time
-                    start_d = time.time()
-                    _ = ut.demostrar_procesamiento_big_data(ruta_cal_zip)
-                    tiempo_dask = time.time() - start_d
-                st.error(f"Tiempo Dask: {tiempo_dask:.2f} segundos")
+                # Si Dask es más rápido, verde; si no, rojo
+                if tiempo_dask < tiempo_pandas:
+                    st.success(f"Tiempo Dask: {tiempo_dask:.2f} segundos")
+                else:
+                    st.error(f"Tiempo Dask: {tiempo_dask:.2f} segundos")
                 st.caption("Divide el archivo y usa todos los núcleos en paralelo.")
 
-            # Conclusión matemática
-            mejora = (tiempo_pandas / tiempo_dask) if tiempo_dask > 0 else 1
-            st.info(f"💡 Dask ha sido **{mejora:.1f} veces más rápido** al paralelizar las tareas.")
+            # --- CONCLUSIÓN DINÁMICA ---
+            if tiempo_dask < tiempo_pandas:
+                mejora = (tiempo_pandas / tiempo_dask)
+                st.info(f"💡 **Dask** ha sido el ganador: **{mejora:.1f} veces más rápido** al paralelizar las tareas.")
+                colores_grafico = ['#e74c3c', '#2ecc71'] 
+            else:
+                mejora = (tiempo_dask / tiempo_pandas)
+                st.info(f"💡 **Pandas** ha sido el ganador: **{mejora:.1f} veces más rápido** en este volumen de datos.")
+                colores_grafico = ['#2ecc71', '#e74c3c'] 
             
-            # Gráfico de barras visual
+            # --- GRÁFICO DE BARRAS VISUAL ---
             fig_comp, ax_comp = plt.subplots(figsize=(8, 3))
             sns.barplot(x=['Pandas (Secuencial)', 'Dask (Paralelo)'], 
                         y=[tiempo_pandas, tiempo_dask], 
-                        palette=['green', 'red'], ax=ax_comp)
+                        palette=colores_grafico, ax=ax_comp)
             ax_comp.set_ylabel("Segundos (menos es mejor)")
             st.pyplot(fig_comp)
     else:
