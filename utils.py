@@ -13,8 +13,9 @@ import importlib
 import warnings
 import time
 import joblib
-import shutil  # <--- Soluciona el error de "shutil is not defined"
+import shutil
 from tqdm.auto import tqdm
+import plotly.express as px
 
 # RUTAS GLOBALES (Soluciona el error de "PATH_DATA is not defined")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__)) if '__file__' in locals() else os.getcwd()
@@ -52,6 +53,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.callbacks import EarlyStopping
 
+# Fundamental para la limpieza y preparación de datos pero no la usamos en app.py. Se deja preparada por si queremos hacer un módulo de "Limpieza Avanzada" o algo similar en el futuro.
 def pipeline_completo_preparacion():
     """
     Pipeline integral final:
@@ -143,23 +145,8 @@ def pipeline_completo_preparacion():
     print("⚠️ El proceso terminó pero no se pudo realizar el Join Espacial.")
     return df_listings, df_calendar, df_renta, mapa_sevilla
 
-
-
-import pandas as pd
-import numpy as np
-import re
-
-def clasificar_propietario(df):
-    """
-    Clasifica al anfitrión como Particular (<= 5 pisos) o Empresa (> 5 pisos).
-    """
-    df = df.copy()
-    if 'calculated_host_listings_count' in df.columns:
-        df['tipo_propietario'] = df['calculated_host_listings_count'].apply(
-            lambda x: 'Particular' if x <= 5 else 'Empresa'
-        )
-    return df
-
+# No la usamos en este trabajo, pero la dejamos preparada por si queremos hacer predicciones en el futuro de varios pisos a la vez. 
+# En la web solo tasamos uno, pero esta función podría ser útil para un futuro módulo de "Tasación Masiva" o algo similar.
 def preparar_datos_prediccion(df):
     """
     Clon exacto de la lógica de Ingeniería de Características del Notebook 05 (KNN).
@@ -232,7 +219,6 @@ def preparar_datos_prediccion(df):
 # =============================================================================
 # MÓDULO VISUAL 1: GRÁFICOS DINÁMICOS PARA USUARIO FINAL (PLOTLY - PESTAÑA 2)
 # =============================================================================
-import plotly.express as px
 
 def generar_mapa_interactivo(df):
     fig = px.scatter_mapbox(
@@ -284,14 +270,11 @@ def grafico_top_barrios_baratos(df):
     fig = px.bar(df_agrupado, x="price", y="neighbourhood_cleansed", orientation='h', title="6. Top 10 Barrios más económicos", labels={"neighbourhood_cleansed": "Barrio", "price": "Precio (€)"}, color_discrete_sequence=['#2ecc71'])
     fig.update_layout(yaxis={'categoryorder':'total descending'}, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     return fig
-# =============================================================================
-# MÓDULO VISUAL 2: LECTURA DE GRÁFICOS ESTÁTICOS DE R (PESTAÑA 3)
-# =============================================================================
+
 # =============================================================================
 # MÓDULO VISUAL 2: LECTURA DE GRÁFICOS ESTÁTICOS DE R (PESTAÑA 3)
 # =============================================================================
 def obtener_rutas_graficos_r():
-    import os
     BASE_DIR = os.path.dirname(os.path.abspath(__file__)) if '__file__' in locals() else os.getcwd()
     PATH_DATA = os.path.join(BASE_DIR, 'data')
     

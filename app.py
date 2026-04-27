@@ -8,6 +8,7 @@ import joblib
 import utils as ut
 import plotly.express as px
 import streamlit.components.v1 as components
+import tensorflow as tf
 # -----------------------------------------------------------------------------
 # SECCION 1: CONFIGURACION DE LA PAGINA
 # -----------------------------------------------------------------------------
@@ -248,9 +249,6 @@ with tab2:
 # PESTAÑA 3: ANÁLISIS DE MERCADO E IA
 # =============================================================================
 with tab3:
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    
     st.header("📈 Análisis Avanzado e Inteligencia Artificial")
     
     # --- PARTE 1: GALERÍA R ---
