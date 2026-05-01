@@ -1,5 +1,3 @@
-# Trabajo-Inteligencia-Artificial
-
 # Tasador Inteligente y Análisis del Ecosistema Airbnb en Sevilla
 Una aproximación híbrida mediante Machine Learning, Big Data e Interoperabilidad R-Python
 
@@ -27,3 +25,34 @@ El análisis de tres millones de registros permite evaluar el compromiso entre l
 
 Interoperabilidad R-Python
 Python gestiona la lógica de la aplicación, los mapas interactivos y la interfaz en Streamlit. R hace otro trabajo: el análisis estadístico offline que cruza presión turística con renta per cápita por distrito. ggplot2 produce esas visualizaciones con una calidad gráfica que Plotly no iguala para este tipo de análisis multivariante estático. Los scripts de R se ejecutan en local y exportan las imágenes al directorio data/; desde ahí, Streamlit las carga directamente. No es la integración más elegante del mundo, pero es estable y reproducible.
+
+
+## 4. Guía de instalación y ejecución (Reproducibilidad)
+Para garantizar una reproducción exacta del entorno de desarrollo y evitar conflictos de versiones, la gestión de paquetes y dependencias se ha implementado mediante uv, un gestor de alto rendimiento para Python.
+
+### Creación del entorno e instalación de dependencias
+El proyecto incluye los archivos pyproject.toml y uv.lock, que definen la estructura y las versiones exactas de las librerías necesarias. Para levantar el proyecto desde cero, ejecuta los siguientes comandos en la terminal:
+
+#### 1) Clonar el repositorio:
+git clone <https://github.com/Curro14/Trabajo-Inteligencia-Artificial>
+cd Trabajo-Inteligencia-Artificial
+
+#### 2) Crear el entorno virtual:
+uv venv
+
+#### 3)Sincronizar e instalar dependencias:
+uv sync
+(Este comando leerá el archivo uv.lock e instalará exactamente las mismas versiones de las librerías utilizadas en el desarrollo).
+
+## 5. Ejecución y Acceso Público
+
+Una vez configurado el entorno, la interfaz analítica se puede desplegar localmente ejecutando el script principal mediante Streamlit:
+### 1. Activar el entorno virtual
+En Windows: .venv\Scripts\activate
+En macOS/Linux: source .venv/bin/activate
+
+### 2. Correr la aplicación
+streamlit run app.py
+
+Para facilitar la evaluación del proyecto sin necesidad de realizar la instalación local, la plataforma se encuentra desplegada y operativa en la siguiente URL pública:
+Enlace a la web: https://tu-app-sevilla.streamlit.app
