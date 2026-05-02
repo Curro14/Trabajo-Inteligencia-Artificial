@@ -241,8 +241,9 @@ with tab2:
             st.success(f"¡Hemos encontrado **{len(df_filtrado)} alojamientos** que encajan con tu búsqueda!")
             
             # El mapa toma todo el ancho para que sea fácil explorar
-            st.plotly_chart(ut.generar_mapa_interactivo(df_filtrado), use_container_width=True)
-            
+            fig_mapa = ut.generar_mapa_interactivo(df_filtrado)
+            st.plotly_chart(fig_mapa, use_container_width=True)  
+                      
             st.markdown("### 📊 Conoce tu mercado antes de reservar")
             st.markdown("Descubre qué zonas son más baratas y qué tipo de pisos hay disponibles con tus filtros actuales.")
 
