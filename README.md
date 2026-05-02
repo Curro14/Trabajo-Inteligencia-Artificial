@@ -55,4 +55,4 @@ En macOS/Linux: source .venv/bin/activate
 streamlit run app.py
 
 Para facilitar la evaluación del proyecto sin necesidad de realizar la instalación local, la plataforma se encuentra desplegada y operativa en la siguiente URL pública:
-Enlace a la web: https://tu-app-sevilla.streamlit.app
+Enlace a la web: https://trabajo-inteligencia-artificial-taub9uhuxpqck564fgl7yu.streamlit.app
