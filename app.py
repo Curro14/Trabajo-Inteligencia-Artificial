@@ -8,7 +8,6 @@ import joblib
 import utils as ut
 import plotly.express as px
 import streamlit.components.v1 as components
-import tensorflow as tf
 # -----------------------------------------------------------------------------
 # SECCION 1: CONFIGURACION DE LA PAGINA
 # -----------------------------------------------------------------------------
@@ -28,6 +27,10 @@ try:
     knn_model = joblib.load(os.path.join(PATH_DATA, 'knn_model.pkl'))
     scaler = joblib.load(os.path.join(PATH_DATA, 'scaler.pkl'))
     dict_barrios = joblib.load(os.path.join(PATH_DATA, 'dict_barrios.pkl'))
+    
+    # 👇 --- AÑADE ESTA LÍNEA EXACTAMENTE AQUÍ --- 👇
+    df_viviendas = pd.read_csv(os.path.join(PATH_DATA, 'dataset_ia_final.csv'))
+    
 except FileNotFoundError:
     st.error(f"Error: No se encuentran los archivos del modelo en {PATH_DATA}")
     st.stop()
@@ -126,6 +129,25 @@ with tab1:
         
         st.success(f"Precio Sugerido: {prediccion:.2f} € / noche")
         st.info(f"Rango competitivo en tu zona: {prediccion*0.85:.2f}€ - {prediccion*1.15:.2f}€")
+        
+        # --- EXPLICABILIDAD DEL MODELO ---
+        st.divider()
+        st.subheader("🔍 ¿Por qué este precio? (Auditoría del Modelo)")
+        st.write("El algoritmo estima tu precio basándose en estos alojamientos similares:")
+        
+        # Le pasamos directamente df_viviendas (que ya cargaste al principio de tu app.py)
+        vecinos_df, fig_pca = ut.generar_explicabilidad_knn(knn_model, df_viviendas, input_scaled)
+        
+        # Mostramos la tabla
+        columnas = ['price', 'accommodates', 'bedrooms', 'bathrooms_text', 'Distancia']
+        st.dataframe(vecinos_df[columnas], width='stretch')
+        
+        # Mostramos el gráfico
+        st.write("**Mapa de Similitud (PCA):** Proyección en 2D del mercado.")
+        st.plotly_chart(fig_pca, width='stretch')
+
+
+
 
 # =============================================================================
 # PESTAÑA 2: BUSCADOR INTERACTIVO PARA USUARIOS (AIRBNB STYLE)
@@ -249,6 +271,9 @@ with tab2:
 # PESTAÑA 3: ANÁLISIS DE MERCADO E IA
 # =============================================================================
 with tab3:
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    
     st.header("📈 Análisis Avanzado e Inteligencia Artificial")
     
     # --- PARTE 1: GALERÍA R ---
@@ -286,51 +311,32 @@ with tab3:
         if st.button('🔥 Iniciar Comparativa de Velocidad', type="primary"):
             col_pan, col_das = st.columns(2)
             
-            # --- EJECUCIÓN DE BENCHMARKS ---
-            with st.spinner('Ejecutando comparativa...'):
-                # Test Pandas
-                tiempo_pandas = ut.benchmark_pandas(ruta_cal_zip)
-                
-                # Test Dask
-                import time
-                start_d = time.time()
-                _ = ut.demostrar_procesamiento_big_data(ruta_cal_zip)
-                tiempo_dask = time.time() - start_d
-
-            # --- MOSTRAR RESULTADOS EN COLUMNAS ---
             with col_pan:
                 st.write("🐢 **Pandas (Secuencial)**")
-                # Si Pandas es más rápido (o igual), verde; si no, rojo
-                if tiempo_pandas <= tiempo_dask:
-                    st.success(f"Tiempo Pandas: {tiempo_pandas:.2f} segundos")
-                else:
-                    st.error(f"Tiempo Pandas: {tiempo_pandas:.2f} segundos")
+                with st.spinner('Pandas está sufriendo...'):
+                    tiempo_pandas = ut.benchmark_pandas(ruta_cal_zip)
+                st.success(f"Tiempo Pandas: {tiempo_pandas:.2f} segundos")
                 st.caption("Carga todo el archivo en un solo núcleo de la CPU.")
             
             with col_das:
                 st.write("🚀 **Dask (Multiprocesamiento)**")
-                # Si Dask es más rápido, verde; si no, rojo
-                if tiempo_dask < tiempo_pandas:
-                    st.success(f"Tiempo Dask: {tiempo_dask:.2f} segundos")
-                else:
-                    st.error(f"Tiempo Dask: {tiempo_dask:.2f} segundos")
+                with st.spinner('Dask está repartiendo el trabajo...'):
+                    import time
+                    start_d = time.time()
+                    _ = ut.demostrar_procesamiento_big_data(ruta_cal_zip)
+                    tiempo_dask = time.time() - start_d
+                st.error(f"Tiempo Dask: {tiempo_dask:.2f} segundos")
                 st.caption("Divide el archivo y usa todos los núcleos en paralelo.")
 
-            # --- CONCLUSIÓN DINÁMICA ---
-            if tiempo_dask < tiempo_pandas:
-                mejora = (tiempo_pandas / tiempo_dask)
-                st.info(f"💡 **Dask** ha sido el ganador: **{mejora:.1f} veces más rápido** al paralelizar las tareas.")
-                colores_grafico = ['#e74c3c', '#2ecc71'] 
-            else:
-                mejora = (tiempo_dask / tiempo_pandas)
-                st.info(f"💡 **Pandas** ha sido el ganador: **{mejora:.1f} veces más rápido** en este volumen de datos.")
-                colores_grafico = ['#2ecc71', '#e74c3c'] 
+            # Conclusión matemática
+            mejora = (tiempo_pandas / tiempo_dask) if tiempo_dask > 0 else 1
+            st.info(f"💡 Dask ha sido **{mejora:.1f} veces más rápido** al paralelizar las tareas.")
             
-            # --- GRÁFICO DE BARRAS VISUAL ---
+            # Gráfico de barras visual
             fig_comp, ax_comp = plt.subplots(figsize=(8, 3))
             sns.barplot(x=['Pandas (Secuencial)', 'Dask (Paralelo)'], 
                         y=[tiempo_pandas, tiempo_dask], 
-                        palette=colores_grafico, ax=ax_comp)
+                        palette=['green', 'red'], ax=ax_comp)
             ax_comp.set_ylabel("Segundos (menos es mejor)")
             st.pyplot(fig_comp)
     else:

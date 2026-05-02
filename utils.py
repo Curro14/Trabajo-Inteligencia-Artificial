@@ -16,6 +16,7 @@ import joblib
 import shutil
 from tqdm.auto import tqdm
 import plotly.express as px
+from sklearn.decomposition import PCA
 
 # RUTAS GLOBALES (Soluciona el error de "PATH_DATA is not defined")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__)) if '__file__' in locals() else os.getcwd()
@@ -216,6 +217,73 @@ def preparar_datos_prediccion(df):
 
     return df
 
+
+
+def generar_explicabilidad_knn(modelo_knn, df_original, usuario_escalado):
+    """
+    Genera la tabla de vecinos y el gráfico PCA para explicar la decisión del KNN.
+    Recibe 'usuario_escalado' que ya incluye los pesos (*= 2.0) aplicados en app.py.
+    """
+    # 1. Extraer los vecinos del modelo (el K lo coge de tu entrenamiento)
+    distancias, indices = modelo_knn.kneighbors(usuario_escalado)
+
+    # 2. Crear la tabla con los pisos reales
+    vecinos_df = df_original.iloc[indices[0]].copy()
+    vecinos_df['Distancia'] = distancias[0]
+    
+    # 3. Magia matemática: PCA para reducir a 2 dimensiones
+    # Extraemos los datos de entrenamiento directamente del modelo KNN
+    X_train_escalado = modelo_knn._fit_X
+    pca = PCA(n_components=2)
+    X_pca = pca.fit_transform(X_train_escalado)
+    usuario_pca = pca.transform(usuario_escalado)
+
+    # 4. Preparamos las etiquetas para el gráfico
+    etiquetas = ['Resto del Mercado'] * len(X_pca)
+    for idx in indices[0]:
+        etiquetas[idx] = 'Vecinos Seleccionados (KNN)'
+
+    # Creamos un DataFrame para Plotly
+    df_plot = pd.DataFrame({
+        'Componente Principal 1': X_pca[:, 0],
+        'Componente Principal 2': X_pca[:, 1],
+        'Categoría': etiquetas
+    })
+
+    df_usuario = pd.DataFrame({
+        'Componente Principal 1': usuario_pca[:, 0],
+        'Componente Principal 2': usuario_pca[:, 1],
+        'Categoría': ['Tu Alojamiento']
+    })
+    df_plot = pd.concat([df_plot, df_usuario], ignore_index=True)
+
+    # 5. Dibujar con Plotly
+    color_map = {
+        'Resto del Mercado': 'lightgrey',
+        'Vecinos Seleccionados (KNN)': 'red',
+        'Tu Alojamiento': 'gold'
+    }
+    
+    fig = px.scatter(
+        df_plot, 
+        x='Componente Principal 1', 
+        y='Componente Principal 2',
+        color='Categoría',
+        color_discrete_map=color_map,
+        opacity=0.7
+    )
+
+    # Ajustar tamaños para que se vea claro
+    fig.update_traces(marker=dict(size=8, line=dict(width=1, color='DarkSlateGrey')), 
+                      selector=dict(name='Vecinos Seleccionados (KNN)'))
+    fig.update_traces(marker=dict(size=15, symbol='star', line=dict(width=2, color='black')), 
+                      selector=dict(name='Tu Alojamiento'))
+    fig.update_traces(marker=dict(size=4), 
+                      selector=dict(name='Resto del Mercado'))
+
+    return vecinos_df, fig
+
+
 # =============================================================================
 # MÓDULO VISUAL 1: GRÁFICOS DINÁMICOS PARA USUARIO FINAL (PLOTLY - PESTAÑA 2)
 # =============================================================================
@@ -319,3 +387,6 @@ def demostrar_procesamiento_big_data(path_calendar):
     ocupacion_por_dia_pandas = ddf_calendar.groupby('date')['ocupado'].mean().compute()
     
     return ocupacion_por_dia_pandas
+
+
+
