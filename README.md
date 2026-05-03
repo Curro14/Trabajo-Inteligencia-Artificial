@@ -31,7 +31,7 @@ Python gestiona la lógica de la aplicación, los mapas interactivos y la interf
 Para garantizar una reproducción exacta del entorno de desarrollo y evitar conflictos de versiones, la gestión de paquetes y dependencias se ha implementado mediante uv, un gestor de alto rendimiento para Python.
 
 ### Creación del entorno e instalación de dependencias
-El proyecto incluye los archivos pyproject.toml y uv.lock, que definen la estructura y las versiones exactas de las librerías necesarias. Para levantar el proyecto desde cero, ejecuta los siguientes comandos en la terminal:
+El proyecto incluye los archivos pyproject.toml, que definen la estructura y las versiones exactas de las librerías necesarias. Para levantar el proyecto desde cero, ejecuta los siguientes comandos en la terminal:
 
 #### 1) Clonar el repositorio:
 git clone <https://github.com/Curro14/Trabajo-Inteligencia-Artificial>
